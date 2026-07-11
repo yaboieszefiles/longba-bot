@@ -12,7 +12,7 @@ function attachBlackjackCollector(msg, game, channel, ctx) {
     const userId = game.userId;
 
     activeBJGames.set(userId, game);
-    store.saveGameSession(userId, 'blackjack', channel.id, msg.id, bjSerialize(game));
+    store.saveGameSession(userId, 'blackjack', msg.channelId, msg.id, bjSerialize(game));
 
     function bjEndGame(status) {
         activeBJGames.delete(userId);
@@ -53,7 +53,7 @@ function attachBlackjackCollector(msg, game, channel, ctx) {
                     return bjEndGame(bjResolve(game));
                 }
 
-                store.saveGameSession(userId, 'blackjack', channel.id, msg.id, bjSerialize(game));
+                store.saveGameSession(userId, 'blackjack', msg.channelId, msg.id, bjSerialize(game));
                 msg.edit({
                     components: [bjBuildContainer(game)],
                     flags: MessageFlags.IsComponentsV2
@@ -104,7 +104,7 @@ function attachMinesCollector(msg, game, channel, ctx) {
     const userId = game.userId;
 
     activeMinesGames.set(userId, game);
-    store.saveGameSession(userId, 'mines', channel.id, msg.id, minesSerialize(game));
+    store.saveGameSession(userId, 'mines', msg.channelId, msg.id, minesSerialize(game));
 
     function minesEndGame(status) {
         activeMinesGames.delete(userId);
@@ -154,7 +154,7 @@ function attachMinesCollector(msg, game, channel, ctx) {
                 return minesEndGame('win');
             }
 
-            store.saveGameSession(userId, 'mines', channel.id, msg.id, minesSerialize(game));
+            store.saveGameSession(userId, 'mines', msg.channelId, msg.id, minesSerialize(game));
             msg.edit({
                 components: [minesBuildContainer(game)],
                 flags: MessageFlags.IsComponentsV2
