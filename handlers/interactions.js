@@ -7,23 +7,27 @@ const {
     PermissionsBitField, ComponentType, EmbedBuilder,
 } = require('discord.js');
 
-function attachBlackjackCollector(msg, game, channel, ctx) {
+function attachBlackjackCollector(msg, game, sourceInteraction, ctx) {
     const { store, activeBJGames, bjBuildContainer, bjDealerPlay, bjResolve, bjCalcHand, bjSerialize } = ctx;
     const userId = game.userId;
 
     activeBJGames.set(userId, game);
     store.saveGameSession(userId, 'blackjack', msg.channelId, msg.id, bjSerialize(game));
 
-    function bjEndGame(status) {
+    function renderTo(target, payload) {
+        return target.editReply(payload).catch(() => {});
+    }
+
+    function bjEndGame(status, i) {
         activeBJGames.delete(userId);
         store.deleteGameSession(userId, 'blackjack');
         if (status === 'win') store.addCoins(userId, game.bet * 2);
         else if (status === 'push') store.addCoins(userId, game.bet);
         collector.stop('resolved');
-        msg.edit({
+        renderTo(i ?? sourceInteraction, {
             components: [bjBuildContainer(game, status)],
             flags: MessageFlags.IsComponentsV2
-        }).catch(() => {});
+        });
     }
 
     const collector = msg.createMessageComponentCollector({
@@ -47,22 +51,22 @@ function attachBlackjackCollector(msg, game, channel, ctx) {
                 game.playerHand.push(game.deck.pop());
                 const total = bjCalcHand(game.playerHand);
 
-                if (total > 21) return bjEndGame('bust');
+                if (total > 21) return bjEndGame('bust', i);
                 if (total === 21) {
                     bjDealerPlay(game);
-                    return bjEndGame(bjResolve(game));
+                    return bjEndGame(bjResolve(game), i);
                 }
 
                 store.saveGameSession(userId, 'blackjack', msg.channelId, msg.id, bjSerialize(game));
-                msg.edit({
+                renderTo(i, {
                     components: [bjBuildContainer(game)],
                     flags: MessageFlags.IsComponentsV2
-                }).catch(() => {});
+                });
             }
 
             if (i.customId === 'bj_stand') {
                 bjDealerPlay(game);
-                return bjEndGame(bjResolve(game));
+                return bjEndGame(bjResolve(game), i);
             }
 
             if (i.customId === 'bj_double') {
@@ -78,11 +82,11 @@ function attachBlackjackCollector(msg, game, channel, ctx) {
                 game.playerHand.push(game.deck.pop());
                 bjDealerPlay(game);
                 const total = bjCalcHand(game.playerHand);
-                return bjEndGame(total > 21 ? 'bust' : bjResolve(game));
+                return bjEndGame(total > 21 ? 'bust' : bjResolve(game), i);
             }
         } catch (err) {
             console.error('[Blackjack] Collector error:', err);
-            bjEndGame('lose');
+            bjEndGame('lose', i);
         }
     });
 
@@ -91,22 +95,26 @@ function attachBlackjackCollector(msg, game, channel, ctx) {
         if (activeBJGames.has(userId)) {
             activeBJGames.delete(userId);
             store.deleteGameSession(userId, 'blackjack');
-            msg.edit({
+            renderTo(sourceInteraction, {
                 components: [bjBuildContainer(game, 'lose')],
                 flags: MessageFlags.IsComponentsV2
-            }).catch(() => {});
+            });
         }
     });
 }
 
-function attachMinesCollector(msg, game, channel, ctx) {
+function attachMinesCollector(msg, game, sourceInteraction, ctx) {
     const { store, activeMinesGames, minesBuildContainer, minesMultiplier, MINES_GRID_SIZE, minesSerialize } = ctx;
     const userId = game.userId;
 
     activeMinesGames.set(userId, game);
     store.saveGameSession(userId, 'mines', msg.channelId, msg.id, minesSerialize(game));
 
-    function minesEndGame(status) {
+    function renderTo(target, payload) {
+        return target.editReply(payload).catch(() => {});
+    }
+
+    function minesEndGame(status, i) {
         activeMinesGames.delete(userId);
         store.deleteGameSession(userId, 'mines');
         if (status === 'win' || status === 'cashout') {
@@ -114,10 +122,10 @@ function attachMinesCollector(msg, game, channel, ctx) {
             store.addCoins(userId, Math.floor(game.bet * mult));
         }
         collector.stop('resolved');
-        msg.edit({
+        renderTo(i ?? sourceInteraction, {
             components: [minesBuildContainer(game, status)],
             flags: MessageFlags.IsComponentsV2
-        }).catch(() => {});
+        });
     }
 
     const collector = msg.createMessageComponentCollector({
@@ -138,30 +146,30 @@ function attachMinesCollector(msg, game, channel, ctx) {
             await i.deferUpdate();
 
             if (i.customId === 'mines_cashout') {
-                return minesEndGame('cashout');
+                return minesEndGame('cashout', i);
             }
 
             const idx = parseInt(i.customId.split('_')[1], 10);
             if (isNaN(idx) || game.revealed.has(idx)) return;
 
             if (game.mines.has(idx)) {
-                return minesEndGame('lose');
+                return minesEndGame('lose', i);
             }
 
             game.revealed.add(idx);
             const safeTiles = MINES_GRID_SIZE - game.mineCount;
             if (game.revealed.size === safeTiles) {
-                return minesEndGame('win');
+                return minesEndGame('win', i);
             }
 
             store.saveGameSession(userId, 'mines', msg.channelId, msg.id, minesSerialize(game));
-            msg.edit({
+            renderTo(i, {
                 components: [minesBuildContainer(game)],
                 flags: MessageFlags.IsComponentsV2
-            }).catch(() => {});
+            });
         } catch (err) {
             console.error('[Mines] Collector error:', err);
-            minesEndGame('lose');
+            minesEndGame('lose', i);
         }
     });
 
@@ -170,10 +178,10 @@ function attachMinesCollector(msg, game, channel, ctx) {
         if (activeMinesGames.has(userId)) {
             activeMinesGames.delete(userId);
             store.deleteGameSession(userId, 'mines');
-            msg.edit({
+            renderTo(sourceInteraction, {
                 components: [minesBuildContainer(game, 'lose')],
                 flags: MessageFlags.IsComponentsV2
-            }).catch(() => {});
+            });
         }
     });
 }
@@ -187,7 +195,8 @@ async function resumeGameSessions(ctx) {
             const channel = await client.channels.fetch(session.channelId);
             const msg = await channel.messages.fetch(session.messageId);
             const game = ctx.bjDeserialize(session.state);
-            attachBlackjackCollector(msg, game, channel, ctx);
+            const editShim = { editReply: (payload) => msg.edit(payload) };
+            attachBlackjackCollector(msg, game, editShim, ctx);
             await msg.edit({
                 components: [ctx.bjBuildContainer(game)],
                 flags: MessageFlags.IsComponentsV2
@@ -206,7 +215,8 @@ async function resumeGameSessions(ctx) {
             const channel = await client.channels.fetch(session.channelId);
             const msg = await channel.messages.fetch(session.messageId);
             const game = ctx.minesDeserialize(session.state);
-            attachMinesCollector(msg, game, channel, ctx);
+            const editShim = { editReply: (payload) => msg.edit(payload) };
+            attachMinesCollector(msg, game, editShim, ctx);
             await msg.edit({
                 components: [ctx.minesBuildContainer(game)],
                 flags: MessageFlags.IsComponentsV2
@@ -2107,7 +2117,7 @@ function registerInteractionHandlers(deps) {
             throw err;
         }
 
-        attachBlackjackCollector(msg, game, interaction.channel, deps);
+        attachBlackjackCollector(msg, game, interaction, deps);
 
         return;
     }
@@ -2160,7 +2170,7 @@ function registerInteractionHandlers(deps) {
             throw err;
         }
 
-        attachMinesCollector(msg, game, interaction.channel, deps);
+        attachMinesCollector(msg, game, interaction, deps);
 
         return;
     }
