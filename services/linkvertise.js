@@ -12,7 +12,7 @@ async function getLinkvertiseLink(discordId) {
             if (Date.now() - v.createdAt > 24 * 60 * 60 * 1000) pendingKeys.delete(k);
         }
 
-        const redeemUrl = `https://longba-bot.github.io/main/redeem.html?k=${key}`;
+        const redeemUrl = `https://longba.site/?key=${key}`;
 
         const userId = process.env.LINKVERTISE_USER_ID;
         const randomNum = Math.random() * 1000;
