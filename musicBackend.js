@@ -349,6 +349,17 @@ function createMusicPlayer(client, {
             throw new Error('[Music] Still no Lavalink node available after a reconnect attempt. Try again in a few seconds.');
         }
         let lp = manager.getPlayer(guildId);
+
+        // If this player is still attached to a node that no longer exists/connected
+        // (e.g. it survived a node swap because it had no current track/queue to
+        // snapshot), it's a stale reference — throw it away and recreate.
+        if (lp && (!lp.node || !lp.node.connected)) {
+            console.warn(`[Music] Player for guild ${guildId} was attached to a dead node — recreating it.`);
+            try { await lp.destroy(); } catch {}
+            try { manager.players?.delete?.(guildId); } catch {}
+            lp = null;
+        }
+
         if (!lp) {
             if (!voiceChannelId) {
                 throw new Error(`[Music] No active player for guild ${guildId} and no voiceChannelId given to create one`);
