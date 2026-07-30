@@ -350,6 +350,9 @@ function createMusicPlayer(client, {
         }
         let lp = manager.getPlayer(guildId);
 
+        // If this player is still attached to a node that no longer exists/connected
+        // (e.g. it survived a node swap because it had no current track/queue to
+        // snapshot), it's a stale reference — throw it away and recreate.
         if (lp && (!lp.node || !lp.node.connected)) {
             console.warn(`[Music] Player for guild ${guildId} was attached to a dead node — recreating it.`);
             try { await lp.destroy(); } catch {}
