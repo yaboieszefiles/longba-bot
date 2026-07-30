@@ -4,8 +4,10 @@ const {
     ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SectionBuilder,
     ThumbnailBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags,
     StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle,
-    PermissionsBitField, ComponentType, EmbedBuilder,
+    PermissionsBitField, ComponentType, EmbedBuilder, AttachmentBuilder,
+    MediaGalleryBuilder, MediaGalleryItemBuilder,
 } = require('discord.js');
+const { buildLeaderboardImage } = require('../utils/leaderboardImage');
 
 function attachBlackjackCollector(msg, game, sourceInteraction, ctx) {
     const { store, activeBJGames, bjBuildContainer, bjDealerPlay, bjResolve, bjCalcHand, bjSerialize } = ctx;
@@ -546,7 +548,7 @@ function registerInteractionHandlers(deps) {
                 c.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
                 c.addTextDisplayComponents(
                     new TextDisplayBuilder().setContent(
-                        `</pet:1496842251975000164> \`cat\` — +3,500 VC Coins every 30 mins\n` +
+                        `</pet:1496842251975000164> \`cat\` — +1,500 VC Coins every 30 mins\n` +
                         `</pet:1496842251975000164> \`dog\` — Check your Agimat time remaining\n` +
                         `</pet:1496842251975000164> \`hamster\` — 8.5x luck in coinflip (15 bets/2hrs)\n` +
                         `</pet:1496842251975000164> \`fox\` — Steal coins from richest user without Agimat\n` +
@@ -1165,7 +1167,7 @@ function registerInteractionHandlers(deps) {
                 if (roll < 35) {
 
                     const coinsReward =
-                        Math.floor(Math.random() * (10000 - 6000 + 1)) + 6000;
+                        Math.floor(Math.random() * (6000 - 3000 + 1)) + 3000;
 
                     store.addCoins(userId, coinsReward);
 
@@ -2479,7 +2481,7 @@ if (interaction.isCommand() && interaction.commandName === 'shop') {
             accentColor: 0x5A5A5C,
             items: [
                 { emoji: '<a:dog:1496797720432742421>',          name: 'Dog',     price: '350,000 Coins',   desc: 'Checks your Agimat & alerts when it expires',             id: 'buy-dog' },
-                { emoji: '<a:cat:1496798083823046696>',          name: 'Cat',     price: '450,000 Coins',   desc: '+3,500 VC Coins every 30 mins',                           id: 'buy-cat' },
+                { emoji: '<a:cat:1496798083823046696>',          name: 'Cat',     price: '450,000 Coins',   desc: '+1,500 VC Coins every 30 mins',                           id: 'buy-cat' },
                 { emoji: '<a:hmster:1506538001088643153>',       name: 'Hamster', price: '2,500,000 Coins', desc: '8.5x luck in coinflip (15 bets per 2hrs)',                id: 'buy-hamster' },
                 { emoji: '<a:fox:1498290944330694717>',          name: 'Fox',     price: '300g Coke',    desc: 'Steals coins from richest user without Agimat',           id: 'buy-fox' },
                 { emoji: '<a:crow:1498865634778288148>',         name: 'Crow',    price: '550g Weed',  desc: 'Steals drugs from users without Agimat',                  id: 'buy-crow' },
@@ -3279,67 +3281,52 @@ if (interaction.isCommand() && interaction.commandName === 'shop') {
             }
             await interaction.deferReply();
             const guildMembers = await getCachedMembers(interaction.guild);
-            const medals = ['<a:94814firstplacetrophy:1506958107060998224>','<a:30646secondplacetrophy:1506958102065578034>','<a:22955thirdplacetrophy:1506958097191800962>'];
             const lbPages = ['coins', 'aura'];
+            const lbTitles = { coins: 'Coins Leaderboard', aura: 'Aura Leaderboard' };
+            const lbEmojis = { coins: '<:acoin:1508147096631513188>', aura: '<a:flame:1491148060217180282>' };
             let lbPage = 0;
 
-            const buildLbContainer = (tab, disabled = false) => {
-                const container = new ContainerBuilder().setAccentColor(0x5A5A5C);
+            const buildLbPayload = async (tab, disabled = false) => {
+                const getTop = tab === 'coins' ? store.getTopCoins : store.getTopAura;
+                const topUsers = getTop(5000).filter(u => guildMembers.has(String(u.user_id))).slice(0, 10);
+                if (!topUsers.length) return null;
 
-                if (tab === 'coins') {
-                    const topUsers = store.getTopCoins(5000).filter(u => guildMembers.has(String(u.user_id))).slice(0, 10);
-                    if (!topUsers.length) return null;
-                    const desc = topUsers.map((u, i) => {
-                        const m = guildMembers.get(String(u.user_id));
-                        const name = m?.user?.globalName || m?.user?.username || 'Unknown User';
-                        return `${medals[i] || '<a:50534diamond:1506958646183985265>'} ${i+1}. **${name}** — <:acoin:1508147096631513188> \`${Number(u.coins).toLocaleString()}\``;
-                    }).join('\n');
-
-                    const guildIcon = interaction.guild.iconURL();
-                    if (guildIcon) {
-                        const titleSection = new SectionBuilder()
-                            .addTextDisplayComponents(
-                                new TextDisplayBuilder().setContent(`## <a:161979trophy:1506958112081313903> ${interaction.guild.name} Leaderboard`)
-                            )
-                            .setThumbnailAccessory(new ThumbnailBuilder({ media: { url: guildIcon } }));
-                        container.addSectionComponents(titleSection);
-                    } else {
-                        container.addTextDisplayComponents(
-                            new TextDisplayBuilder().setContent(`## <a:161979trophy:1506958112081313903> ${interaction.guild.name} Leaderboard`)
-                        );
-                    }
-                    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-                    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(desc));
-
-                } else {
-                    const topUsers = store.getTopAura(5000).filter(u => guildMembers.has(String(u.user_id))).slice(0, 10);
-                    if (!topUsers.length) return null;
-                    const desc = topUsers.map((u, i) => {
-                        const m = guildMembers.get(String(u.user_id));
-                        const name = m?.user?.globalName || m?.user?.username || 'Unknown User';
-                        return `${medals[i] || '<a:50534diamond:1506958646183985265>'} ${i+1}. **${name}** — <a:flame:1491148060217180282> \`${Number(u.aura).toLocaleString()}\``;
-                    }).join('\n');
-
-                    const guildIconAura = interaction.guild.iconURL();
-                    if (guildIconAura) {
-                        const titleSection = new SectionBuilder()
-                            .addTextDisplayComponents(
-                                new TextDisplayBuilder().setContent(`## <a:73946aura:1506964443215691806> ${interaction.guild.name} Aura Leaderboard`)
-                            )
-                            .setThumbnailAccessory(new ThumbnailBuilder({ media: { url: guildIconAura } }));
-                        container.addSectionComponents(titleSection);
-                    } else {
-                        container.addTextDisplayComponents(
-                            new TextDisplayBuilder().setContent(`## <a:73946aura:1506964443215691806> ${interaction.guild.name} Aura Leaderboard`)
-                        );
-                    }
-                    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-                    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(desc));
+                const entries = [];
+                for (let i = 0; i < topUsers.length; i++) {
+                    const u = topUsers[i];
+                    const m = guildMembers.get(String(u.user_id));
+                    const name = m?.user?.globalName || m?.user?.username || 'Unknown User';
+                    let avatarURL = null;
+                    try {
+                        const discordUser = await interaction.client.users.fetch(u.user_id);
+                        avatarURL = discordUser.displayAvatarURL({ extension: 'png', size: 128 });
+                    } catch {}
+                    entries.push({
+                        rank: i + 1,
+                        userId: u.user_id,
+                        username: name,
+                        avatarURL,
+                        value: tab === 'coins' ? Number(u.coins) : Number(u.aura),
+                    });
                 }
 
+                const buffer = await buildLeaderboardImage({ tab, entries });
+                const filename = `leaderboard-${tab}-${Date.now()}.png`;
+                const attachment = new AttachmentBuilder(buffer, { name: filename });
+
+                const container = new ContainerBuilder().setAccentColor(0x5A5A5C);
+                container.addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(`## ${lbEmojis[tab]} ${interaction.guild.name} — ${lbTitles[tab]}`)
+                );
+                container.addMediaGalleryComponents(
+                    new MediaGalleryBuilder().addItems(
+                        new MediaGalleryItemBuilder().setURL(`attachment://${filename}`).setDescription(`${tab} leaderboard`)
+                    )
+                );
                 container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-                container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# Page ${lbPage + 1}/${lbPages.length} • Keep grinding to reach #1.`));
-                container.addSeparatorComponents(new SeparatorBuilder().setDivider(false));
+                container.addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(`-# • Keep grinding to reach #1.`)
+                );
                 container.addActionRowComponents(
                     new ActionRowBuilder().addComponents(
                         new ButtonBuilder().setCustomId('lb_back').setEmoji({ id: '1511035172064198707' }).setStyle(ButtonStyle.Secondary).setDisabled(disabled),
@@ -3348,14 +3335,15 @@ if (interaction.isCommand() && interaction.commandName === 'shop') {
                     )
                 );
 
-                return container;
+                return { attachment, container };
             };
 
-            const firstContainer = buildLbContainer(lbPages[lbPage]);
-            if (!firstContainer) return interaction.editReply({ content: '-# no leaderboard data available yet.' });
+            const first = await buildLbPayload(lbPages[lbPage]);
+            if (!first) return interaction.editReply({ content: '-# no leaderboard data available yet.' });
 
             const lbMsg = await interaction.editReply({
-                components: [firstContainer],
+                files: [first.attachment],
+                components: [first.container],
                 flags: MessageFlags.IsComponentsV2,
                 fetchReply: true
             });
@@ -3366,16 +3354,24 @@ if (interaction.isCommand() && interaction.commandName === 'shop') {
                 if (i.user.id !== interaction.user.id) return i.reply({ content: '-# This menu is not yours.', flags: MessageFlags.Ephemeral });
                 if (i.customId === 'lb_next') lbPage = (lbPage + 1) % lbPages.length;
                 if (i.customId === 'lb_back') lbPage = (lbPage - 1 + lbPages.length) % lbPages.length;
-                const container = buildLbContainer(lbPages[lbPage]);
+                const payload = await buildLbPayload(lbPages[lbPage]);
                 try {
-                    await i.update({ components: [container], flags: MessageFlags.IsComponentsV2 });
+                    await i.update({
+                        files: [payload.attachment],
+                        attachments: [],
+                        components: [payload.container],
+                        flags: MessageFlags.IsComponentsV2
+                    });
                 } catch (err) { if (err.code === 10062) return; throw err; }
             });
 
             lbCollector.on('end', async () => {
                 try {
+                    const payload = await buildLbPayload(lbPages[lbPage], true);
                     await lbMsg.edit({
-                        components: [buildLbContainer(lbPages[lbPage], true)],
+                        files: [payload.attachment],
+                        attachments: [],
+                        components: [payload.container],
                         flags: MessageFlags.IsComponentsV2
                     });
                 } catch {}
