@@ -29,9 +29,9 @@ setInterval(() => {
                     const userItem = store.getItems(userId);
                     const hascat = userItem.cat !== undefined;
                     const hasAnting2 = userItem.anting2 && userItem.anting2.expiresAt > now;
-                    let bonus = 2000;
+                    let bonus = 1000;
                     if (hasAnting2) bonus += 500;
-                    if (hascat) bonus += 3500;
+                    if (hascat) bonus += 1500;
 
                     store.addCoins(userId, bonus);
                     totalCoins += bonus;
@@ -97,9 +97,9 @@ setInterval(() => {
                             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
                             .addTextDisplayComponents(
                                 new TextDisplayBuilder().setContent(
-                                    '<:acoin:1508147096631513188> **Base Reward** — +2,000 Coins every 30 minutes in VC\n' +
+                                    '<:acoin:1508147096631513188> **Base Reward** — +1,000 Coins every 30 minutes in VC\n' +
                                     '<:anting2:1491119853854261308> **Anting-anting** — +500 bonus while active\n' +
-                                    '<a:cat:1496798083823046696> **Cat** — +3,500 bonus while owned\n\n' +
+                                    '<a:cat:1496798083823046696> **Cat** — +1,500 bonus while owned\n\n' +
                                     '-# Coins are given to everyone in the VC at the time of each drop.\n' +
                                     '-# Buy items from </shop:1491118301277847760> to boost your earnings!'
                                 )
