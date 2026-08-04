@@ -7,6 +7,7 @@ const {
 const { SearchEngine } = require('../musicBackend');
 const searchCache = require('../db/search-cache');
 const { spotifyApiSearch, spotifyTrackImage, spotifyTrackArtists } = require('../services/spotify');
+const { requestAvatarUpdate } = require('../services/botAvatar');
 const {
     musicNowPlayingIntervals, musicNowPlayingMessages, musicLyricsCache,
     spotifyMetaByUrl, musicLastTrack, musicAutoplayHistory, musicAutoplayLock,
@@ -607,6 +608,12 @@ function registerPlayerEvents(player, client) {
 
     player.events.on('playerStart', (queue, track) => {
         musicLastTrack.set(queue.guild.id, track);
+
+        const artist = track.spotifyMeta?.artist
+            || spotifyMetaByUrl.get(track.url)?.artist
+            || track.author;
+        requestAvatarUpdate(_client, artist);
+
         publishNowPlaying(queue, track).catch((err) => {
             console.error('[Music] now playing panel error:', err);
         });
