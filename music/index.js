@@ -7,7 +7,7 @@ const {
 const { SearchEngine } = require('../musicBackend');
 const searchCache = require('../db/search-cache');
 const { spotifyApiSearch, spotifyTrackImage, spotifyTrackArtists } = require('../services/spotify');
-const { requestAvatarUpdate } = require('../services/botAvatar');
+const { requestAvatarUpdate, requestAvatarReset } = require('../services/botAvatar');
 const {
     musicNowPlayingIntervals, musicNowPlayingMessages, musicLyricsCache,
     spotifyMetaByUrl, musicLastTrack, musicAutoplayHistory, musicAutoplayLock,
@@ -572,22 +572,55 @@ async function handleNowPlayingButton(interaction) {
     }
 }
 
+// Matches the common YouTube bot-detection / block messages that show up
+// across most/all clients on a given Lavalink node (Sign in to confirm
+// you're not a bot, This video requires login, This video is unavailable, etc.)
+const YOUTUBE_BLOCK_PATTERN = /sign in to confirm|requires login|video is unavailable|not a bot|age[- ]restrict|blocked in your country/i;
+const NODE_SWITCH_COOLDOWN_MS = 30 * 1000;
+let lastNodeSwitchAt = 0;
+
 function registerPlayerEvents(player, client) {
     _client = client;
     player.events.on('playerError', (queue, error, track) => {
         const msg = error?.message || String(error);
         console.error('[Music] playerError:', track?.title, msg);
         const channel = queue.metadata?.channel;
-        if (!channel?.send) return;
 
+        if (YOUTUBE_BLOCK_PATTERN.test(msg)) {
+            const now = Date.now();
+            if (now - lastNodeSwitchAt > NODE_SWITCH_COOLDOWN_MS) {
+                lastNodeSwitchAt = now;
+                channel?.send?.(
+                    `-# ⚠ This server node is being blocked by YouTube — switching to another node and retrying **${track?.title || 'track'}**...`
+                ).catch(() => {});
+
+                player.recoverFailedTrack(queue.guild.id, track, `YouTube blocked playback on this node: ${msg}`)
+                    .catch((err) => {
+                        console.error('[Music] Failed to recover after YouTube block:', err);
+                        channel?.send?.(`-# ✕ Could not play **${track?.title || 'track'}** — skipping...`).catch(() => {});
+                    });
+                return;
+            }
+            // Still within cooldown of a recent switch — the new node is likely
+            // also blocked (or this is a different underlying issue), so don't
+            // thrash between nodes. Fall through to the normal skip below.
+        }
+
+        if (!channel?.send) return;
         channel.send(`-# ✕ Could not play **${track?.title || 'track'}** — skipping...`).catch(() => {});
     });
 
     player.events.on('emptyQueue', (queue) => {
-        maybeAutoplay(queue).catch((err) => {
-            console.error('[Autoplay] emptyQueue handler error:', err);
-            disableNowPlayingControls(queue.guild.id);
-        });
+        maybeAutoplay(queue)
+            .catch((err) => {
+                console.error('[Autoplay] emptyQueue handler error:', err);
+                disableNowPlayingControls(queue.guild.id);
+            })
+            .finally(() => {
+                if (!queue.currentTrack && !queue.tracks.size) {
+                    requestAvatarReset(_client);
+                }
+            });
     });
 
     player.events.on('playerFinish', (queue) => {
@@ -604,6 +637,7 @@ function registerPlayerEvents(player, client) {
         musicAutoplayHistory.delete(queue.guild.id);
         musicLastTrack.delete(queue.guild.id);
         musicAutoplayLock.delete(queue.guild.id);
+        requestAvatarReset(_client);
     });
 
     player.events.on('playerStart', (queue, track) => {
