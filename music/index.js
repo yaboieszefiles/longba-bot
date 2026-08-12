@@ -85,7 +85,6 @@ async function disableNowPlayingControls(guildId, content) {
             flags: MessageFlags.IsComponentsV2
         });
     } catch {
-        /* message may be deleted */
     }
     clearMusicNowPlayingMessage(guildId);
 }
@@ -572,9 +571,6 @@ async function handleNowPlayingButton(interaction) {
     }
 }
 
-// Matches the common YouTube bot-detection / block messages that show up
-// across most/all clients on a given Lavalink node (Sign in to confirm
-// you're not a bot, This video requires login, This video is unavailable, etc.)
 const YOUTUBE_BLOCK_PATTERN = /sign in to confirm|requires login|video is unavailable|not a bot|age[- ]restrict|blocked in your country/i;
 const NODE_SWITCH_COOLDOWN_MS = 30 * 1000;
 let lastNodeSwitchAt = 0;
@@ -601,9 +597,6 @@ function registerPlayerEvents(player, client) {
                     });
                 return;
             }
-            // Still within cooldown of a recent switch — the new node is likely
-            // also blocked (or this is a different underlying issue), so don't
-            // thrash between nodes. Fall through to the normal skip below.
         }
 
         if (!channel?.send) return;
