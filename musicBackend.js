@@ -384,6 +384,25 @@ function createMusicPlayer(client, {
             manager?.sendRawData(data);
         },
 
+        /**
+         * Called when a track fails to load/play for a reason that's tied to
+         * the current node (e.g. YouTube bot-detection blocking that node's IP).
+         * Re-queues the failed track at the front, then switches to a different
+         * node — the existing snapshot/restore mechanism will pick it up and
+         * retry it automatically on the new node.
+         */
+        async recoverFailedTrack(guildId, rawTrack, reason) {
+            const lp = manager?.getPlayer(guildId);
+            if (lp && rawTrack) {
+                try {
+                    await lp.queue.add(rawTrack, 0);
+                } catch (err) {
+                    console.error('[Music] Could not re-queue failed track before node switch:', err?.message || err);
+                }
+            }
+            await forceSwitchNode(reason);
+        },
+
                 nodes: {
             get(guildId) {
                 if (!manager) return undefined;
