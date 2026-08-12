@@ -1,18 +1,24 @@
 'use strict';
+const fs = require('fs');
+const path = require('path');
 const { spotifyApiSearch } = require('./spotify');
 
 const MIN_INTERVAL_MS = 12 * 60 * 1000;
 
-const artistImageCache = new Map(); 
+const DEFAULT_AVATAR_URL = 'https://cdn.discordapp.com/attachments/1491135613544431698/1534710885459820685/wa.png';
+const DEFAULT_AVATAR_PATH = path.join(__dirname, '..', 'assets', 'default-pfp.png');
 
-let lastChangeAt = 0;    
+const DEFAULT_SENTINEL = '__DEFAULT__';
+
+const artistImageCache = new Map();
+
+let lastChangeAt = 0;  
 let pendingArtist = null; 
 let flushTimer = null;
 let inFlight = false;
 
 function primaryArtistOf(artistString) {
     if (!artistString) return null;
-
     return artistString
         .split(/,|&|\/| feat\.?| ft\.?| x | - Topic/i)[0]
         .trim() || null;
@@ -33,19 +39,40 @@ async function getArtistImageUrl(artistName) {
     }
 }
 
-async function applyAvatar(client, artistName) {
+async function fetchBuffer(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Image fetch failed (${res.status})`);
+    return Buffer.from(await res.arrayBuffer());
+}
+
+async function getDefaultAvatarBuffer() {
+    if (fs.existsSync(DEFAULT_AVATAR_PATH)) {
+        return fs.readFileSync(DEFAULT_AVATAR_PATH);
+    }
+    const buffer = await fetchBuffer(DEFAULT_AVATAR_URL);
+    fs.mkdirSync(path.dirname(DEFAULT_AVATAR_PATH), { recursive: true });
+    fs.writeFileSync(DEFAULT_AVATAR_PATH, buffer);
+    return buffer;
+}
+
+async function applyAvatar(client, target) {
     inFlight = true;
     try {
-        const imageUrl = await getArtistImageUrl(artistName);
-        if (!imageUrl) return;
+        const isDefault = target === DEFAULT_SENTINEL;
+        const buffer = isDefault
+            ? await getDefaultAvatarBuffer()
+            : await (async () => {
+                const imageUrl = await getArtistImageUrl(target);
+                return imageUrl ? fetchBuffer(imageUrl) : null;
+            })();
 
-        const res = await fetch(imageUrl);
-        if (!res.ok) throw new Error(`Image fetch failed (${res.status})`);
-        const buffer = Buffer.from(await res.arrayBuffer());
+        if (!buffer) return;
 
         await client.user.setAvatar(buffer);
         lastChangeAt = Date.now();
-        console.log(`[BotAvatar] Avatar switched to artist: ${artistName}`);
+        console.log(isDefault
+            ? '[BotAvatar] Avatar reverted to default pfp'
+            : `[BotAvatar] Avatar switched to artist: ${target}`);
     } catch (err) {
         const status = err.status || err.code;
         if (status === 429) {
@@ -73,18 +100,26 @@ function scheduleFlush(client) {
     }, wait);
 }
 
-
 function requestAvatarUpdate(client, rawArtistString) {
     const artist = primaryArtistOf(rawArtistString);
     if (!artist || !client?.user) return;
+    queueChange(client, artist);
+}
 
+
+function requestAvatarReset(client) {
+    if (!client?.user) return;
+    queueChange(client, DEFAULT_SENTINEL);
+}
+
+function queueChange(client, target) {
     const elapsed = Date.now() - lastChangeAt;
     if (elapsed >= MIN_INTERVAL_MS && !inFlight) {
-        applyAvatar(client, artist);
+        applyAvatar(client, target);
     } else {
-        pendingArtist = artist;
+        pendingArtist = target;
         scheduleFlush(client);
     }
 }
 
-module.exports = { requestAvatarUpdate };
+module.exports = { requestAvatarUpdate, requestAvatarReset };
