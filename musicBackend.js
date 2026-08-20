@@ -179,6 +179,24 @@ function createMusicPlayer(client, {
         }
     }
 
+    function waitForNodeConnected(timeoutMs = 15000) {
+        if (anyNodeConnected()) return Promise.resolve(true);
+        return new Promise((resolve) => {
+            let done = false;
+            const finish = (result) => {
+                if (done) return;
+                done = true;
+                clearInterval(poll);
+                clearTimeout(timer);
+                resolve(result);
+            };
+            const poll = setInterval(() => {
+                if (anyNodeConnected()) finish(true);
+            }, 200);
+            const timer = setTimeout(() => finish(anyNodeConnected()), timeoutMs);
+        });
+    }
+
     function getAllPlayers() {
         if (!manager) return [];
         try {
@@ -264,14 +282,24 @@ function createMusicPlayer(client, {
         if (currentNodeKey) badNodes.set(currentNodeKey, Date.now() + NODE_BLACKLIST_MS);
         snapshotAllPlayers();
         console.warn(`[Music] ${reason} — searching for a more stable node...`);
-        try {
-            await connectToAnyNode();
-            await restorePlayers();
-        } catch (err) {
-            console.error('[Music] Failed to recover a Lavalink connection:', err);
-        } finally {
-            reconnecting = false;
+
+        const MAX_ATTEMPTS = 4;
+        let lastErr = null;
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                await connectToAnyNode();
+                await restorePlayers();
+                lastErr = null;
+                break;
+            } catch (err) {
+                lastErr = err;
+                console.error(`[Music] Node switch attempt ${attempt}/${MAX_ATTEMPTS} failed:`, err?.message || err);
+            }
         }
+        if (lastErr) {
+            console.error('[Music] Failed to recover a Lavalink connection after several attempts:', lastErr);
+        }
+        reconnecting = false;
     }
 
     async function handleNodeLost() {
@@ -326,7 +354,8 @@ function createMusicPlayer(client, {
         } else {
             try {
                 const oldNodes = [...manager.nodeManager.nodes.values()];
-                manager.nodeManager.createNode(nodeOptions).connect();
+                const newNode = manager.nodeManager.createNode(nodeOptions);
+                await newNode.connect();
                 for (const old of oldNodes) {
                     old?.destroy?.();
                 }
@@ -336,12 +365,22 @@ function createMusicPlayer(client, {
             }
         }
 
+        const ready = await waitForNodeConnected(15000);
+        if (!ready) {
+            badNodes.set(currentNodeKey, Date.now() + NODE_BLACKLIST_MS);
+            throw new Error(`[Music] Node ${node.host}:${node.port} did not finish connecting in time.`);
+        }
+
         console.log(`[Music] Lavalink ready: ${node.host}:${node.port} (secure=${node.secure}).`);
     }
 
     async function getOrCreatePlayer(guildId, voiceChannelId, textChannelId) {
         if (!manager) throw new Error('[Music] Player not initialized yet — call player.init() first.');
-        if (!anyNodeConnected() && !reconnecting) {
+
+        if (reconnecting) {
+            console.warn('[Music] A node switch is already in progress — waiting for it to finish...');
+            await waitForNodeConnected(20000);
+        } else if (!anyNodeConnected()) {
             console.warn('[Music] No connected node detected before creating a player — attempting to reconnect...');
             await handleNodeLost();
         }
@@ -371,6 +410,25 @@ function createMusicPlayer(client, {
                 selfDeaf: true,
                 volume: 100,
             });
+
+            // Extra safety net: on rare occasions a player can come back without
+            // a node attached yet even though the manager reports a node as
+            // connected. Give it one short beat and recreate once if needed,
+            // instead of surfacing "No Lavalink Node was provided" to the user.
+            if (!lp.node || !lp.node.connected) {
+                await new Promise((r) => setTimeout(r, 500));
+                if (!lp.node || !lp.node.connected) {
+                    try { await lp.destroy(); } catch {}
+                    try { manager.players?.delete?.(guildId); } catch {}
+                    lp = manager.createPlayer({
+                        guildId,
+                        voiceChannelId,
+                        textChannelId,
+                        selfDeaf: true,
+                        volume: 100,
+                    });
+                }
+            }
         }
         if (!lp.connected) await lp.connect();
         return lp;
