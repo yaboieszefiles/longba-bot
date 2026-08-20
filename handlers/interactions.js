@@ -250,6 +250,7 @@ function registerInteractionHandlers(deps) {
         formatCooldown, getRoleForAura,
         colors, coinEmojis, emojiIap,
         getCachedMembers,
+        memberCache,
         canControlMusic,
         cmdCooldowns,
         setSpotifyMetaByUrl,
@@ -258,6 +259,33 @@ function registerInteractionHandlers(deps) {
 
     client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand() && !interaction.isButton() && !interaction.isStringSelectMenu() && !interaction.isModalSubmit()) return;
+
+    // Self-heal member tracking without the (currently unapproved) GUILD_MEMBERS
+    // intent: every time someone interacts with the bot in a guild, record/refresh
+    // them in our own membership table. This is what powers /leaderboard and
+    // /pet fox|crow target filtering (guildMembers.has(id)) instead of a full
+    // guild.members.fetch().
+    if (interaction.guild && interaction.user) {
+        try {
+            store.upsertGuildMember(
+                interaction.guild.id,
+                interaction.user.id,
+                interaction.user.username,
+                interaction.user.globalName
+            );
+            // Keep the in-memory cache in sync too, so this user shows up
+            // immediately in /leaderboard or as a /pet fox|crow target
+            // without waiting for a cache eviction/restart.
+            const guildMap = memberCache.get(interaction.guild.id);
+            if (guildMap) {
+                guildMap.set(interaction.user.id, {
+                    user: { username: interaction.user.username, globalName: interaction.user.globalName }
+                });
+            }
+        } catch (err) {
+            console.error('[Cache] Failed to upsert interacting member:', err.message);
+        }
+    }
     if (interaction.isCommand() && interaction.commandName === 'rewards') {
         const userId = interaction.user.id;
         const now = Date.now();
